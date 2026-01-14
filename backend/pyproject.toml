@@ -11,9 +11,11 @@ dependencies = [
     "uvicorn~=0.34.0",
     "google-cloud-logging>=3.12.0",
     "opentelemetry-exporter-gcp-trace~=1.9.0",
-    "sqlmodel>=0.0.31", 
+    "sqlmodel>=0.0.31",
     "python-dotenv>=1.2.1",
     "google-generativeai>=0.8.3",
+    "markdown-it-py>=2.2.0",
+    "xhtml2pdf>=0.2.14",
 ]
 
 [tool.hatch.build.targets.wheel]

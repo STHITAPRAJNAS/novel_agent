@@ -4,8 +4,11 @@ from sqlmodel import Session, select
 from app.utils.file_system import write_chapter_to_disk, read_chapter_from_disk
 import google.generativeai as genai
 import os
-import subprocess # For pandoc
 import re # For regex matching
+
+from markdown_it import MarkdownIt
+from xhtml2pdf import pisa
+import io # For PDF generation
 
 # --- Tool Definitions ---
 
@@ -79,23 +82,30 @@ def editor_modify_and_save_chapter(story_id: int, chapter_number: int, new_conte
     
     # Save to disk as well
     story_context = get_story_context(story_id) # Need story title for disk saving
-    novel_title = story_context.split('TITLE: ')[1].split('\n')[0].strip() if story_context.startswith('TITLE:') else "MyNovel"
+    novel_title_from_context = story_context.split('TITLE: ')[1].split('\n')[0].strip() if story_context.startswith('TITLE:') else "MyNovel"
 
-    write_chapter_to_disk(chapter_number, new_title, new_content, novel_title)
+    write_chapter_to_disk(chapter_number, new_title, new_content, novel_title_from_context)
 
     return f"Chapter {chapter_number} directly modified and saved by editor."
 
-def create_full_novel_pdf(novel_title: str, story_id: int) -> str:
+def create_full_novel_pdf(story_id: int) -> str:
     """
-    Consolidates all chapters for a given novel into a single Markdown file,
-    then converts it to a professional-looking PDF using Pandoc.
-    Requires Pandoc to be installed and in the system's PATH.
+    Consolidates all chapters for a given story_id into a single Markdown file,
+    converts it to HTML, and then renders it to a professional-looking PDF.
+    This tool uses pure Python libraries (markdown-it-py, xhtml2pdf) and does not require Pandoc.
     """
+    with Session(engine) as db_session:
+        story = db_session.get(Story, story_id)
+        if not story:
+            return f"Error: Story with ID {story_id} not found."
+        novel_title = story.title.replace(' ', '_')
+        display_novel_title = story.title
+        
     # 1. Gather all chapters and sort them
     script_dir = os.path.dirname(os.path.abspath(__file__)) # app/
     project_root = os.path.join(script_dir, '..', '..') # root/
 
-    novel_dir = os.path.join(project_root, 'backend', 'novels', novel_title.replace(' ', '_'))
+    novel_dir = os.path.join(project_root, 'backend', 'novels', novel_title)
     
     chapter_files = []
     if not os.path.exists(novel_dir):
@@ -110,45 +120,65 @@ def create_full_novel_pdf(novel_title: str, story_id: int) -> str:
 
     chapter_files.sort(key=lambda x: x[0])
 
-    # 2. Compile into a single Markdown file
-    full_md_filename = os.path.join(project_root, f"{novel_title.replace(' ', '_')}_full_novel.md")
+    # 2. Compile into a single Markdown string
+    md = MarkdownIt()
+    
+    full_md_filename = os.path.join(novel_dir, f"{novel_title}_full_novel.md") # Save in novel_dir
     
     with open(full_md_filename, "w", encoding="utf-8") as outfile:
-        outfile.write(f"# {novel_title.replace('_', ' ').title()}\n\n")
+        outfile.write(f"# {display_novel_title}\n\n")
         for chapter_num, filename in chapter_files:
             filepath = os.path.join(novel_dir, filename)
             with open(filepath, "r", encoding="utf-8") as infile:
                 outfile.write(infile.read())
             outfile.write("\n\n---\n\n") # Separator between chapters
 
-    # 3. Convert to PDF using Pandoc
-    pdf_filename = os.path.join(project_root, f"{novel_title.replace(' ', '_')}_full_novel.pdf")
+    # 3. Convert Markdown to HTML
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>{display_novel_title}</title>
+        <style>
+            @page {{
+                size: a4 portrait;
+                margin: 1in;
+                @frame footer {{
+                    -pdf-frame-content: footerContent;
+                    bottom: 0.5in;
+                    margin-left: 1in;
+                    margin-right: 1in;
+                    height: 0.5in;
+                }}
+            }}
+            body {{ font-family: \"serif\"; }}
+            h1 {{ text-align: center; page-break-after: always; }}
+            h2, h3, h4, h5, h6 {{ page-break-before: auto; }}
+            .chapter-separator {{ page-break-after: always; }}
+            pre {{ background-color: #eee; padding: 1em; overflow: auto; }}
+        </style>
+    </head>
+    <body>
+        <div id="footerContent" style="text-align: right; font-size: 10pt;">
+            <p>- <pdf:pagenumber> -</p>
+        </div>
+        {md.render(full_md_content)}
+    </body>
+    </html>
+    """
+
+    # 4. Convert HTML to PDF using xhtml2pdf
+    pdf_filename = os.path.join(novel_dir, f"{novel_title}_full_novel.pdf") # Save in novel_dir
     
     try:
-        # Use lualatex for better font handling and modern LaTeX features
-        # Add some basic styling for book format
-        subprocess.run(
-            [
-                "pandoc",
-                full_md_filename,
-                "-o",
-                pdf_filename,
-                "--pdf-engine=lualatex",
-                "-V", "geometry:margin=1in", # 1 inch margins
-                "-V", "fontsize=12pt",     # 12pt font size
-                "-V", "mainfont=EB Garamond", # Example font, user might customize
-                "-V", "linestretch=1.2",    # 1.2 line spacing
-                "--toc",                    # Table of contents
-                "--number-sections"         # Number sections (chapters)
-            ],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        return f"Successfully created PDF for '{novel_title}' at {pdf_filename}"
-    except FileNotFoundError:
-        return "Error: Pandoc not found. Please install Pandoc (https://pandoc.org/installing.html) to create PDF."
-    except subprocess.CalledProcessError as e:
-        return f"Error during PDF generation with Pandoc: {e.stderr}"
+        with open(pdf_filename, "wb") as pdf_file:
+            pisa_status = pisa.CreatePDF(
+                html_content,                # the HTML to convert
+                dest=pdf_file                # file handle to receive result
+            )
+        
+        if pisa_status.err:
+            return f"Error during PDF generation: {pisa_status.err}"
+        return f"Successfully created PDF for '{display_novel_title}' at {pdf_filename}"
     except Exception as e:
         return f"An unexpected error occurred during PDF creation: {e}"
