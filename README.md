@@ -59,26 +59,42 @@ Once the server is running, navigate to `http://localhost:8000/dev-ui` in your b
     *   "Proceed."
     *   The agent's prompts are designed to guide you through the workflow.
 
+### PDF Generation
+
+The agent's `create_full_novel_pdf` tool will automatically generate a PDF when the novel is complete, saving it to `backend/novels/<NovelTitle>/<NovelTitle>_full_novel.pdf`.
+
+**Manual PDF Generation (Troubleshooting/Fallback):**
+
+If for any reason the agent's tool call fails or you need to re-generate a PDF for an existing novel, you can do so manually:
+
+1.  **Stop the backend server.**
+2.  Navigate to the `backend/` directory.
+3.  Run the manual PDF generation script:
+    ```bash
+    python create_pdf_manual.py --story_id <STORY_ID> [--novel_title "Your Novel Title"]
+    ```
+    *   Replace `<STORY_ID>` with the actual Story ID from your database (e.g., `1`).
+    *   Provide `--novel_title` if the story ID lookup in the database might fail or is unknown. The script will try to derive the novel title from the `story_id` first.
+
+    Example:
+    ```bash
+    python create_pdf_manual.py --story_id 1
+    # Or, if DB lookup fails/unknown:
+    python create_pdf_manual.py --novel_title "The Son of the Soil"
+    ```
+    The PDF will be created in `backend/novels/<NovelTitle>/`.
+
 ## Project Structure (Backend)
 
 *   `backend/app/agent.py`: Defines the `novelist_agent` (root agent) and its sub-agents (Architect, Ghostwriter, Editor Alpha, Editor Beta), including their sophisticated prompts and tool assignments.
 *   `backend/app/tools.py`: Contains Python functions wrapped as tools for agents (e.g., `save_chapter_draft`, `create_full_novel_pdf`, `editor_modify_and_save_chapter`).
 *   `backend/app/server.py`: The FastAPI application that uses `google.adk.cli.fast_api.get_fast_api_app` to host the ADK agent, handle sessions, and provide the `/dev-ui`.
+*   `backend/create_pdf_manual.py`: A script to manually trigger PDF generation.
 *   `backend/app/database/models.py`: Defines the SQLModel for storing novel content (Story, Chapter).
 *   `backend/app/utils/file_system.py`: Utilities for reading/writing chapter files to disk.
 *   `backend/app/services/sqlite_session.py`: (DELETED - ADK handles SQLite sessions internally now via `session_service_uri`).
 *   `backend/data/sessions.db`: The SQLite database file for ADK's agent session history (created automatically).
 *   `backend/novels/`: Directory where generated novel chapters (Markdown) and final PDFs are stored.
-
-## Frontend
-
-The frontend (Next.js/React) is not part of the current focus as per user request.
-
-## Development Notes
-
-*   **Session Management:** The ADK agent sessions are now persistent, stored in `backend/data/sessions.db`.
-*   **LLM Model:** Uses `gemini-1.5-pro`.
-*   **PDF Generation:** Uses pure Python libraries (`markdown-it-py` and `xhtml2pdf`) for robust, system-independent PDF creation.
 
 ---
 **Note:** `uv run uvicorn app.server:app` is the entry point. The old `src/main.py` is no longer used.
