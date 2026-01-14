@@ -42,3 +42,4 @@ backend/novel_agent.db
 *.sqlite
 plumber_ref/
 movie_ref/
+backend/data/

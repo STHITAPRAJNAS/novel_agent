@@ -17,7 +17,7 @@ AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Configure SQLite session service
 # This will be handled by the ADK framework
-SESSION_SERVICE_URI = "sqlite:///sessions.db"
+SESSION_SERVICE_URI = None # Use InMemorySessionService to avoid SQLite corruption
 
 app: FastAPI = get_fast_api_app(
     agents_dir=AGENT_DIR,
